@@ -9,7 +9,7 @@ import random
 import os
 import re
 from imgaug import augmenters as iaa
-
+import multiprocessing
 
 
 
@@ -17,7 +17,8 @@ import logging
 from logging import handlers
 
 logger = logging.getLogger(__name__)
-handler_stream = logging.StreamHandler() #output to console formatter = logging.Formatter("%(asctime)s:::%(module)s:::%(message)s")
+handler_stream = logging.StreamHandler() #output to console 
+formatter = logging.Formatter("%(asctime)s:::%(module)s:::%(message)s")
 handler_stream.setFormatter(formatter)
 logger.setLevel(logging.INFO)
 logger.addHandler(handler_stream)
@@ -25,9 +26,9 @@ logger.addHandler(handler_stream)
 class data_generator(object):
     
     def __init__(self, images_height = 32, image_width = 256, max_string_lenght = 35, 
-                 background_type = ['real','conts'], dataset_type = 'random', backgrounds_path = 'backgrounds/',
-                 fonts_path = 'valid_fonts/', valid_charset_path = 'valid_charset.txt', 
-                 text_examples = 'text_examples.txt', font_size_bound = (20,14)):
+                 background_type = ['real','conts'], dataset_type = 'random', backgrounds_path = './backgrounds/',
+                 fonts_path = './valid_fonts/', valid_charset_path = './valid_charset.txt', 
+                 text_examples = './text_examples.txt', font_size_bound = (20,14)):
         '''
         background_type - list consist used types of bg, e.g. ['real', 'random', 'plain']. 
                     If use 'real', then backgrounds_path should be set to used backgrounds.
@@ -39,7 +40,7 @@ class data_generator(object):
         backgrounds_path - path with background images
         font_size_bound - bounds of font size range, from which value will be chosen
         '''
-        assert set(['real', 'random', 'conts']).intersection(set(background_type)) ==                         set(background_type), 'background_type argument should be list consisting only "real", "random" or "conts"'
+        assert set(['real', 'random', 'conts']).intersection(set(background_type)) == set(background_type), 'background_type argument should be list consisting only "real", "random" or "conts"'
         assert dataset_type in ['random', 'samples'] , 'dataset_type argument should be one of "random" or "samples"'
         self.images_height = images_height
         self.image_width = image_width
@@ -61,26 +62,53 @@ class data_generator(object):
         self.aug_seq = iaa.Sequential([
             iaa.GaussianBlur(sigma=(0,0.05)),
             iaa.AdditiveGaussianNoise(loc=0, scale=(0.0, 0.05*255)),
-            iaa.Affine(rotate=(-3,3)),
+            iaa.Affine(rotate=(-3,3), order=[1]),
             iaa.PerspectiveTransform(scale=(0,0.02)),  
         ])
         
+    def get_batch_parallel(self, batch_size = 64):
+        '''
+        produce batch of text string images in parallel manner
+        '''
+        def wrapper_multi(i):
+            image, label = self.get_image_and_label()
+            return image, label
+        image_batch = []
+        string_batch = []
+        for _ in range(batch_size):
+            image_batch.append(np.array(self.get_text_image()))
+            string_batch.append(self.text_string)
+        return image_batch, string_batch
+
     def get_batch(self, batch_size = 64):
         '''
         produce batch of text string images
         '''
-        background = sample_background()
-        pass
+        def wrapper_multi()
+        image_batch = []
+        string_batch = []
+        for _ in range(batch_size):
+            image_batch.append(np.array(self.get_text_image()))
+            string_batch.append(self.text_string)
+        return image_batch, string_batch
     
     def get_text_image_with_bg(self):
         '''
         merge backgroundwith text string image
         '''
-        self.background = self.sample_cached_background()
+        background = self.sample_cached_background()
 #        self.background = self.sample_background()
-        self.text_image = self.augument_image(np.array(self.get_text_image()))
-        image_with_background = ImageChops.difference(self.background, Image.fromarray(self.text_image))
-        return image_with_background
+        text_image = self.get_text_image()
+        image_with_background = ImageChops.difference(background, text_image)
+        augumented_image = self.augument_image(np.array(image_with_background))
+        return augumented_image
+    def get_image_and_label(self):
+        '''
+        return pair of image and label
+        '''
+        image = self.get_text_image_with_bg()
+        string = self.text_string
+        return np.array(image), string
     
     def get_text_image(self):
         '''
