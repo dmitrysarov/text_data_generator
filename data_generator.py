@@ -56,35 +56,45 @@ class data_generator(object):
             self.text_samples = self.set_texts_samples(text_examples)
         self.fonts_files = (fonts_path, self.set_fonts(fonts_path))
         logging.info('{} fonts to produce data'.format(len(self.fonts_files)))
-        self.valid_charset = self.set_valid_charset(valid_charset_path) + list('    ') #add three blank spaces to encrease probobility
+        self.valid_charset = self.set_valid_charset(valid_charset_path)
+        self.char_to_indx = dict(zip(self.valid_charset,
+            range(len(self.valid_charset))))
         self.font_size_bound = font_size_bound
         #init augumentation pipline
         self.aug_seq = iaa.Sequential([
             iaa.GaussianBlur(sigma=(0,0.05)),
             iaa.AdditiveGaussianNoise(loc=0, scale=(0.0, 0.05*255)),
             iaa.Affine(rotate=(-3,3), order=[1]),
-            iaa.PerspectiveTransform(scale=(0,0.02)),  
+            iaa.PerspectiveTransform(scale=(0,0.02)),
         ])
-        
+        try:
+            self.pool = multiprocessing.Pool()
+        except:
+            logging.warn('Can not create pool')
+            
+    def __getstate__(self):
+        '''
+        hack for multiprocessing.Pool object pickling
+        https://stackoverflow.com/questions/25382455/python-notimplementederror-pool-objects-cannot-be-passed-between-processes
+        '''
+        self_dict = self.__dict__.copy()
+        del self_dict['pool']
+        return self_dict
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+
     def get_batch_parallel(self, batch_size = 64):
         '''
         produce batch of text string images in parallel manner
         '''
-        def wrapper_multi(i):
-            image, label = self.get_image_and_label()
-            return image, label
-        image_batch = []
-        string_batch = []
-        for _ in range(batch_size):
-            image_batch.append(np.array(self.get_text_image()))
-            string_batch.append(self.text_string)
+        image_label_pairs = self.pool.map(self.get_image_and_label, range(batch_size))
+        image_batch, string_batch = zip(*image_label_pairs)
         return image_batch, string_batch
 
     def get_batch(self, batch_size = 64):
         '''
         produce batch of text string images
         '''
-        def wrapper_multi()
         image_batch = []
         string_batch = []
         for _ in range(batch_size):
@@ -102,14 +112,25 @@ class data_generator(object):
         image_with_background = ImageChops.difference(background, text_image)
         augumented_image = self.augument_image(np.array(image_with_background))
         return augumented_image
-    def get_image_and_label(self):
+
+    def get_image_and_label(self, *args, **kwargs):
         '''
         return pair of image and label
         '''
         image = self.get_text_image_with_bg()
-        string = self.text_string
-        return np.array(image), string
+        image = np.expand_dims(np.array(image),-1) # image should have channel
+        label = self.string_to_label(self.text_string)
+        label = np.array(label) + 1 # as labels will be sparce tensor, should not be zero value
+        label = np.pad(label,(0,self.max_string_lenght - len(label)),mode='constant') #padd to max string length
+        return image, label
     
+    def string_to_label(self, string):
+        '''
+        transform string of chars to list of indeces
+        '''
+        label = [self.char_to_indx[s] for s in string]
+        return label
+
     def get_text_image(self):
         '''
         produce one text string image
@@ -124,7 +145,7 @@ class data_generator(object):
         text = Image.new("L", size=(temp_image_width, self.images_height), color=(0))
         draw = ImageDraw.Draw(text)
         draw.text((vertical_text_indent,vertical_text_indent), self.text_string.replace('\n','\\n'), font=font, fill=(255))
-        if cond:  
+        if cond:
             text = text.resize((self.image_width, self.images_height), resample = Image.BILINEAR)
         return text
     
@@ -141,9 +162,10 @@ class data_generator(object):
         provide sample of string (random or from dataset)
         '''
         if self.dataset_type == 'random':
+            valid_charset = self.valid_charset + list('    ') #add three blank spaces to encrease probobility
             random_string_length = random.randint(1, self.max_string_lenght)
-            text_string_indx = [random.randint(0, len(self.valid_charset)-1) for _ in range(random_string_length)]
-            text_string = ''.join([self.valid_charset[i] for i in text_string_indx])
+            text_string_indx = [random.randint(0, len(valid_charset)-1) for _ in range(random_string_length)]
+            text_string = ''.join([valid_charset[i] for i in text_string_indx])
         elif self.dataset_type == 'sample':
             assert self.text_samples != None, 'self.text_sample is None, cant get examples of text'
             text_string = random.sample(self.text_samples, 1)[0]
@@ -221,6 +243,7 @@ class data_generator(object):
         '''
         cache background images to memory, for acceleration
         '''
+        logging.info('Caching background images...')
         path, files = self.backgrounds_files
         images = []
         for f in files:
