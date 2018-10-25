@@ -67,29 +67,6 @@ class data_generator(object):
             iaa.Affine(rotate=(-3,3), order=[1]),
             iaa.PerspectiveTransform(scale=(0,0.02)),
         ])
-        try:
-            self.pool = multiprocessing.Pool()
-        except:
-            logging.warn('Can not create pool')
-            
-    def __getstate__(self):
-        '''
-        hack for multiprocessing.Pool object pickling
-        https://stackoverflow.com/questions/25382455/python-notimplementederror-pool-objects-cannot-be-passed-between-processes
-        '''
-        self_dict = self.__dict__.copy()
-        del self_dict['pool']
-        return self_dict
-    def __setstate__(self, state):
-        self.__dict__.update(state)
-
-    def get_batch_parallel(self, batch_size = 64):
-        '''
-        produce batch of text string images in parallel manner
-        '''
-        image_label_pairs = self.pool.map(self.get_image_and_label, range(batch_size))
-        image_batch, string_batch = zip(*image_label_pairs)
-        return image_batch, string_batch
 
     def get_batch(self, batch_size = 64):
         '''
