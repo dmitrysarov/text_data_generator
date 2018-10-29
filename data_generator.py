@@ -246,6 +246,6 @@ class data_generator(object):
         assert os.path.isfile(path), 'There is no file {}'.format(path)
         with open(path,'r',encoding='utf-8') as f:
             charset_string = f.read()
-        valid_charset = list(set(charset_string))
+        valid_charset = list(charset_string)
         assert len(valid_charset) != 0, 'valid charset is empty'
         return valid_charset
