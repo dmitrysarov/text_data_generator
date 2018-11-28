@@ -63,13 +63,16 @@ class data_generator(object):
         self.font_size_bound = font_size_bound
         #init augumentation pipline
         self.aug_seq_noise = iaa.Sequential([
-            iaa.GaussianBlur(sigma=(0,0.5)),
-            iaa.AdditiveGaussianNoise(loc=0, scale=(0.0, 0.1*255)),
+            iaa.GaussianBlur(sigma=(0,0.05)),
+            iaa.AdditiveGaussianNoise(loc=0, scale=(0.0, 0.2*255)),
             iaa.AverageBlur(k=((1, 5), (1, 5)))
         ])
         self.aug_seq_distortion = iaa.Sequential([
-            iaa.Affine(rotate=(-3,3), order=[1], scale={"x": (0.7, 1.0), 
-                "y": (0.7, 1.0)}, shear=(-16, 16), mode='constant', cval=(0)),
+            iaa.Affine(rotate=(-3,3), 
+                order=[1], 
+                 scale={"x": (0.8, 1.1), "y": (0.8, 1.1)}, 
+                 shear=(-10, 10),
+                mode='constant', cval=(0)),
             iaa.PerspectiveTransform(scale=(0, 0.02)),
         ])
 
@@ -92,8 +95,9 @@ class data_generator(object):
 #        background = self.sample_background()
         text_image = self.get_text_image()
         augumented_text_image = self.aug_seq_distortion.augment_image(np.array(text_image))
-        text_image_invert = ImageOps.invert(Image.fromarray(augumented_text_image)) #distort only text not background
-        image_with_background = ImageChops.multiply(background, text_image_invert)
+        text_image_invert = Image.fromarray(augumented_text_image) #distort only text not background
+        background.paste(text_image_invert, box=None, mask=text_image_invert)
+        image_with_background = background
         noised_image = self.aug_seq_noise.augment_image(np.array(image_with_background))
         if random.sample([1,2,3],1)[0] == 3: # 33% probability
             noised_image = np.array(ImageOps.invert(Image.fromarray(noised_image))) #distort only text not background
@@ -125,12 +129,19 @@ class data_generator(object):
         font_size = random.sample(range(np.min(self.font_size_bound), np.max(self.font_size_bound)), 1)[0]
         font = self.sample_font(size=font_size)
         text_size = font.getsize(self.text_string.replace('\n','\\n')) # (width, height)
-        vertical_text_indent = int((self.images_height-text_size[1]))
-        cond = text_size[0] + 2*vertical_text_indent > self.image_width #acquired text is too wide, shrinked must it be. (c) yoda
-        temp_image_width = text_size[0] + 2*vertical_text_indent if cond                                         else self.image_width
-        text = Image.new("L", size=(temp_image_width, self.images_height), color=(0))
+        while (self.images_height-text_size[1])/2 < 1: #if text heights larger then image heights minus 2 
+            font_size -= 1
+            font = self.sample_font(size=font_size)
+            text_size = font.getsize(self.text_string.replace('\n','\\n')) # (width, height)
+            #logger.warn('image heights less then text heights, supress text font size')
+        vertical_text_indent = int((self.images_height-text_size[1])/2)*4
+        horiaontal_text_indent = int((self.images_height-text_size[1])/2)
+        cond = text_size[0] + vertical_text_indent > self.image_width #acquired text is too wide, shrinked must it be. (c) yoda
+        temp_image_width = text_size[0] + 2*vertical_text_indent if cond else self.image_width
+        text = Image.new("RGBA", size=(temp_image_width, self.images_height), color=(0,0,0,0))
         draw = ImageDraw.Draw(text)
-        draw.text((vertical_text_indent,vertical_text_indent), self.text_string.replace('\n','\\n'), font=font, fill=(255))
+        text_brightness = int(np.random.normal(loc=50,scale=20))
+        draw.text((vertical_text_indent, horiaontal_text_indent), self.text_string.replace('\n','\\n'), font=font, fill=(text_brightness, text_brightness, text_brightness, 255))
         if cond:
             text = text.resize((self.image_width, self.images_height), resample = Image.BILINEAR)
         return text
@@ -174,9 +185,9 @@ class data_generator(object):
         provide sample of background image
         '''
         bg_type = random.sample(self.background_type,1)[0]
-        brightness_level = np.random.normal(loc=190,scale=20)
+        brightness_level = int(np.random.normal(loc=190,scale=20))
         if bg_type == 'const':
-            background_image = Image.new('L', (self.image_width, self.images_height), int(brightness_level))
+            background_image = Image.new('L', (self.image_width, self.images_height), (brightness_level))
         elif bg_type == 'real':
             background_file = random.sample(self.backgrounds_files[1], 1)[0]
             background_file_path = self.backgrounds_files[0] + background_file
@@ -198,16 +209,16 @@ class data_generator(object):
         '''
         bg_type = random.sample(self.background_type,1)[0]
         if bg_type == 'const':
-            brightness_level = np.random.normal(loc=190,scale=20)
-            background_image = Image.new('L', (self.image_width, self.images_height), int(brightness_level))
+            brightness_level = int(np.random.normal(loc=190,scale=20))
+            background_image = Image.new('L', (self.image_width, self.images_height), (brightness_level))
         elif bg_type == 'real':
             background_image = random.sample(self.backgrounds, 1)[0]
             width, height = background_image.size
             left, upper = width - self.image_width, height - self.images_height
             rndm_left, rndm_upper = random.randint(0, left), random.randint(0, upper)
-            background_image = background_image.crop(box=(rndm_left, rndm_upper, 
+            background_image = background_image.crop(box=(rndm_left, rndm_upper,
                                                    rndm_left+self.image_width, rndm_upper+self.images_height))
-        return background_image    
+        return background_image
     
     def set_fonts(self, path):
         '''
